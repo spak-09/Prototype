@@ -45,53 +45,6 @@ A modern, community-driven gym management platform with three dashboards.
 - **Backend**: Node.js, Express.js, MongoDB (Mongoose), JWT Auth, bcrypt
 - **UI**: Premium dark/orange theme, rounded cards, soft shadows, animations
 
-## Quick Start
-
-### Prerequisites
-- Node.js 18+
-- MongoDB (local or Atlas)
-
-### 1. Setup Backend
-```bash
-cd backend
-npm install
-```
-
-Create `.env` file:
-```env
-PORT=5000
-MONGODB_URI=mongodb://localhost:27017/elevatefit
-JWT_SECRET=elevatefit_super_secret_key_2024
-JWT_REFRESH_SECRET=elevatefit_refresh_secret_key_2024
-JWT_EXPIRE=7d
-JWT_REFRESH_EXPIRE=30d
-NODE_ENV=development
-```
-
-Seed the database:
-```bash
-npm run seed
-```
-
-Start the backend:
-```bash
-npm run dev
-```
-
-### 2. Setup Frontend
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-### 3. Login Credentials
-
-| Role    | Email                    | Password     |
-|---------|--------------------------|--------------|
-| Owner   | owner@elevatefit.com     | password123  |
-| Trainer | rajesh@elevatefit.com    | password123  |
-| Member  | aarav.gupta@gmail.com    | password123  |
 
 ## Project Structure
 
@@ -122,32 +75,6 @@ Complete/
 │   └── package.json
 └── README.md
 ```
-
-## API Endpoints
-
-| Method | Endpoint                     | Description          |
-|--------|------------------------------|----------------------|
-| POST   | /api/auth/login              | Login                |
-| POST   | /api/auth/register           | Register             |
-| GET    | /api/auth/me                 | Get current user     |
-| GET    | /api/members                 | Get all members      |
-| POST   | /api/members                 | Create member        |
-| PUT    | /api/members/:id             | Update member        |
-| DELETE | /api/members/:id             | Delete member        |
-| POST   | /api/attendance/checkin      | Check in             |
-| POST   | /api/attendance/checkout     | Check out            |
-| GET    | /api/attendance/member/:id   | Member attendance    |
-| POST   | /api/payments                | Create payment       |
-| GET    | /api/payments                | Get all payments     |
-| PUT    | /api/payments/:id/verify     | Verify payment       |
-| GET    | /api/trainer/dashboard       | Trainer dashboard    |
-| GET    | /api/trainer/members         | Trainer's members    |
-| POST   | /api/trainer/workout         | Create workout       |
-| GET    | /api/community/posts         | Get posts            |
-| POST   | /api/community/posts         | Create post          |
-| GET    | /api/community/challenges    | Get challenges       |
-| GET    | /api/analytics/dashboard     | Owner analytics      |
-| GET    | /api/leaderboard             | Get leaderboard      |
 
 ## Mock Data
 
