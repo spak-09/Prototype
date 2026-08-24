@@ -1,4 +1,5 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const User = require('../models/User');
 const Workout = require('../models/Workout');
 const Attendance = require('../models/Attendance');
@@ -76,18 +77,37 @@ router.get('/workouts', protect, authorize('trainer'), async (req, res) => {
   }
 });
 
-// PUT /trainer/member/:id/progress - Update member progress
+// PUT /trainer/member/:id/progress - Update assigned member progress
 router.put('/member/:id/progress', protect, authorize('trainer'), async (req, res) => {
   try {
-    const { weight, height, notes } = req.body;
-    const updateData = {};
-    if (weight) updateData.weight = weight;
-    if (height) updateData.height = height;
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
 
-    const member = await User.findByIdAndUpdate(req.params.id, updateData, { new: true }).select('-password');
+    const { weight, height } = req.body;
+    const updateData = {};
+    if (weight !== undefined) updateData.weight = weight;
+    if (height !== undefined) updateData.height = height;
+
+    if (Object.keys(updateData).length === 0) {
+      return res.status(400).json({ success: false, message: 'No progress fields supplied' });
+    }
+
+    // Authorization is enforced in the database query itself: the trainer may only
+    // update a member whose trainerAssigned field points to the authenticated trainer.
+    const member = await User.findOneAndUpdate(
+      { _id: req.params.id, role: 'member', trainerAssigned: req.user._id },
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!member) {
+      return res.status(404).json({ success: false, message: 'Member not found' });
+    }
+
     res.json({ success: true, member });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to update member progress' });
   }
 });
 
