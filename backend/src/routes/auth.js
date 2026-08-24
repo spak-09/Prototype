@@ -1,9 +1,34 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const { generateToken, protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
+
+// Keep authentication endpoints intentionally stricter than the rest of the API.
+// The limiter keys by IP to slow brute-force, credential-stuffing, and mass-registration attempts.
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again later.',
+  },
+});
+
+const registrationRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many registration attempts. Please try again later.',
+  },
+});
 
 const validateRequest = (req, res) => {
   const errors = validationResult(req);
@@ -41,7 +66,7 @@ const createUser = async ({ name, email, password, role, phone, gymName, special
 
 // POST /auth/register
 // Public registration always creates a member. Privileged accounts must be created by an owner.
-router.post('/register', [
+router.post('/register', registrationRateLimit, [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
@@ -72,7 +97,7 @@ router.post('/register', [
 
 // POST /auth/staff
 // Owner-only endpoint for creating trainer/owner accounts.
-router.post('/staff', protect, authorize('owner'), [
+router.post('/staff', protect, authorize('owner'), authRateLimit, [
   body('name').trim().notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
@@ -95,7 +120,7 @@ router.post('/staff', protect, authorize('owner'), [
 });
 
 // POST /auth/login
-router.post('/login', [
+router.post('/login', authRateLimit, [
   body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required'),
 ], async (req, res) => {
