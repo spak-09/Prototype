@@ -2,9 +2,27 @@ const express = require('express');
 const CommunityPost = require('../models/CommunityPost');
 const Challenge = require('../models/Challenge');
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
+
+const CHALLENGE_FIELDS = [
+  'title',
+  'description',
+  'startDate',
+  'endDate',
+  'rewardPoints',
+  'maxParticipants',
+  'isActive',
+  'goalType',
+  'goalTarget',
+];
+
+const pickChallengeFields = (body) => Object.fromEntries(
+  CHALLENGE_FIELDS
+    .filter((field) => Object.prototype.hasOwnProperty.call(body, field))
+    .map((field) => [field, body[field]])
+);
 
 // GET /posts - Get all community posts
 router.get('/posts', protect, async (req, res) => {
@@ -81,13 +99,56 @@ router.get('/challenges', protect, async (req, res) => {
   }
 });
 
-// POST /challenges - Create a challenge (owner)
-router.post('/challenges', protect, async (req, res) => {
+// POST /challenges - Create a challenge (owner only)
+router.post('/challenges', protect, authorize('owner'), async (req, res) => {
   try {
-    const challenge = await Challenge.create(req.body);
+    const challengeData = pickChallengeFields(req.body);
+
+    const requiredFields = ['title', 'description', 'startDate', 'endDate'];
+    const missingField = requiredFields.find((field) => {
+      const value = challengeData[field];
+      return value === undefined || value === null || value === '';
+    });
+    if (missingField) {
+      return res.status(400).json({ success: false, message: `${missingField} is required` });
+    }
+
+    if (challengeData.rewardPoints !== undefined) {
+      const rewardPoints = Number(challengeData.rewardPoints);
+      if (!Number.isFinite(rewardPoints) || rewardPoints < 0 || rewardPoints > 100000) {
+        return res.status(400).json({ success: false, message: 'Invalid reward points' });
+      }
+      challengeData.rewardPoints = rewardPoints;
+    }
+
+    if (challengeData.maxParticipants !== undefined) {
+      const maxParticipants = Number(challengeData.maxParticipants);
+      if (!Number.isInteger(maxParticipants) || maxParticipants < 1 || maxParticipants > 10000) {
+        return res.status(400).json({ success: false, message: 'Invalid maximum participants' });
+      }
+      challengeData.maxParticipants = maxParticipants;
+    }
+
+    if (challengeData.goalTarget !== undefined) {
+      const goalTarget = Number(challengeData.goalTarget);
+      if (!Number.isFinite(goalTarget) || goalTarget < 0 || goalTarget > 1000000) {
+        return res.status(400).json({ success: false, message: 'Invalid goal target' });
+      }
+      challengeData.goalTarget = goalTarget;
+    }
+
+    const startDate = new Date(challengeData.startDate);
+    const endDate = new Date(challengeData.endDate);
+    if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime()) || endDate <= startDate) {
+      return res.status(400).json({ success: false, message: 'Invalid challenge dates' });
+    }
+    challengeData.startDate = startDate;
+    challengeData.endDate = endDate;
+
+    const challenge = await Challenge.create(challengeData);
     res.status(201).json({ success: true, challenge });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to create challenge' });
   }
 });
 
