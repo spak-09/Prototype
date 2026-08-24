@@ -1,27 +1,35 @@
 const errorHandler = (err, req, res, next) => {
   let statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  let message = err.message;
+  let message = 'Internal server error';
 
   if (err.name === 'CastError' && err.kind === 'ObjectId') {
     statusCode = 404;
     message = 'Resource not found';
-  }
-
-  if (err.name === 'ValidationError') {
+  } else if (err.name === 'ValidationError') {
     statusCode = 400;
-    message = Object.values(err.errors).map((val) => val.message).join(', ');
-  }
-
-  if (err.code === 11000) {
+    message = 'Validation failed';
+  } else if (err.code === 11000) {
     statusCode = 400;
     message = 'Duplicate field value entered';
+  } else if (statusCode < 500 && err.message) {
+    // Preserve useful client-facing messages for known 4xx errors.
+    message = err.message;
+  } else if (err.statusCode && err.statusCode >= 400 && err.statusCode < 500 && err.message) {
+    statusCode = err.statusCode;
+    message = err.message;
   }
 
-  res.status(statusCode).json({
+  const response = {
     success: false,
     message,
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
-  });
+  };
+
+  // Never expose stack traces outside development. NODE_ENV being unset must fail closed.
+  if (process.env.NODE_ENV === 'development') {
+    response.stack = err.stack;
+  }
+
+  res.status(statusCode).json(response);
 };
 
 module.exports = errorHandler;

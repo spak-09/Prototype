@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
 const dotenv = require('dotenv');
 const connectDB = require('./config/db');
 const errorHandler = require('./middleware/errorHandler');
@@ -9,7 +10,32 @@ connectDB();
 
 const app = express();
 
-app.use(cors());
+// Security headers. HTTPS/HSTS is controlled by the deployment environment,
+// while Helmet provides the other baseline browser protections.
+app.use(helmet());
+
+// Bearer-token authentication does not require credentialed cross-origin cookies.
+// Configure one or more trusted frontend origins through ALLOWED_ORIGINS.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow server-to-server tools, health checks, and local non-browser requests
+    // that do not send an Origin header.
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Origin not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+  optionsSuccessStatus: 204,
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 

@@ -1,66 +1,141 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
-const { generateToken, protect } = require('../middleware/auth');
+const { generateToken, protect, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Keep authentication endpoints intentionally stricter than the rest of the API.
+// The limiter keys by IP to slow brute-force, credential-stuffing, and mass-registration attempts.
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again later.',
+  },
+});
+
+const registrationRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many registration attempts. Please try again later.',
+  },
+});
+
+const validateRequest = (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    res.status(400).json({ success: false, errors: errors.array() });
+    return false;
+  }
+  return true;
+};
+
+const createUser = async ({ name, email, password, role, phone, gymName, specialty, membershipPlan }) => {
+  const normalizedEmail = email.toLowerCase().trim();
+  const existingUser = await User.findOne({ email: normalizedEmail });
+  if (existingUser) {
+    const error = new Error('User already exists with this email');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const userData = { name, email: normalizedEmail, password, role, phone };
+
+  if (role === 'owner') userData.gymName = gymName || '';
+  if (role === 'trainer') userData.specialty = specialty || '';
+  if (role === 'member') {
+    userData.membershipPlan = membershipPlan || 'monthly';
+    userData.memberId = `EF-${Date.now().toString().slice(-6)}`;
+    const expiry = new Date();
+    const plans = { monthly: 1, quarterly: 3, 'half-yearly': 6, annual: 12 };
+    expiry.setMonth(expiry.getMonth() + (plans[userData.membershipPlan] || 1));
+    userData.expiryDate = expiry;
+  }
+
+  return User.create(userData);
+};
+
 // POST /auth/register
-router.post('/register', [
-  body('name').notEmpty().withMessage('Name is required'),
-  body('email').isEmail().withMessage('Valid email is required'),
-  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
-  body('role').isIn(['owner', 'trainer', 'member']).withMessage('Valid role is required'),
+// Public registration always creates a member. Privileged accounts must be created by an owner.
+router.post('/register', registrationRateLimit, [
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+    if (!validateRequest(req, res)) return;
 
-    const { name, email, password, role, phone, gymName, specialty, membershipPlan } = req.body;
+    const { name, email, password, phone, membershipPlan } = req.body;
+    const user = await createUser({
+      name,
+      email,
+      password,
+      phone,
+      membershipPlan,
+      role: 'member',
+    });
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ success: false, message: 'User already exists with this email' });
-    }
-
-    const userData = { name, email, password, role, phone };
-    if (role === 'owner') userData.gymName = gymName || '';
-    if (role === 'trainer') userData.specialty = specialty || '';
-    if (role === 'member') {
-      userData.membershipPlan = membershipPlan || 'monthly';
-      userData.memberId = `EF-${Date.now().toString().slice(-6)}`;
-      const expiry = new Date();
-      expiry.setMonth(expiry.getMonth() + 1);
-      userData.expiryDate = expiry;
-    }
-
-    const user = await User.create(userData);
     const token = generateToken(user._id);
-
     res.status(201).json({ success: true, token, user });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    const statusCode = error.statusCode || (error.code === 11000 ? 400 : 500);
+    res.status(statusCode).json({
+      success: false,
+      message: statusCode === 500 ? 'Unable to create account' : error.message,
+    });
+  }
+});
+
+// POST /auth/staff
+// Owner-only endpoint for creating trainer/owner accounts.
+router.post('/staff', protect, authorize('owner'), authRateLimit, [
+  body('name').trim().notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
+  body('password').isLength({ min: 8 }).withMessage('Password must be at least 8 characters'),
+  body('role').isIn(['owner', 'trainer']).withMessage('Staff role must be owner or trainer'),
+], async (req, res) => {
+  try {
+    if (!validateRequest(req, res)) return;
+
+    const { name, email, password, role, phone, gymName, specialty } = req.body;
+    const user = await createUser({ name, email, password, role, phone, gymName, specialty });
+
+    res.status(201).json({ success: true, user });
+  } catch (error) {
+    const statusCode = error.statusCode || (error.code === 11000 ? 400 : 500);
+    res.status(statusCode).json({
+      success: false,
+      message: statusCode === 500 ? 'Unable to create staff account' : error.message,
+    });
   }
 });
 
 // POST /auth/login
-router.post('/login', [
-  body('email').isEmail().withMessage('Valid email is required'),
+router.post('/login', authRateLimit, [
+  body('email').isEmail().withMessage('Valid email is required').normalizeEmail(),
   body('password').notEmpty().withMessage('Password is required'),
 ], async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+    if (!validateRequest(req, res)) return;
 
     const { email, password } = req.body;
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     if (!user || !(await user.matchPassword(password))) {
       return res.status(401).json({ success: false, message: 'Invalid email or password' });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ success: false, message: 'Account is inactive' });
     }
 
     user.lastLogin = new Date();
@@ -69,7 +144,7 @@ router.post('/login', [
     const token = generateToken(user._id);
     res.json({ success: true, token, user });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ success: false, message: 'Unable to process login' });
   }
 });
 
